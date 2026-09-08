@@ -9,8 +9,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,49 +35,165 @@ type ExecResponse struct {
 
 const defaultTimeout = 60 // seconds
 
-// StartDaemon starts a Unix Domain Socket server that accepts command execution
-// requests. It runs in a goroutine and stops when ctx is cancelled.
-// The socket file is cleaned up on shutdown.
-// allowedCommands specifies regex patterns that the command string must match.
-// If allowedCommands is empty, all commands are rejected.
-func StartDaemon(ctx context.Context, sockPath string, allowedCommands []*regexp.Regexp) error {
-	// Remove stale socket file if it exists
-	os.Remove(sockPath)
+// Server manages the unboxexec Unix Domain Socket daemon lifecycle.
+type Server struct {
+	SocketPath      string
+	PIDPath         string
+	AllowedCommands []*regexp.Regexp
 
-	listener, err := net.Listen("unix", sockPath)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", sockPath, err)
+	listener net.Listener
+	mu       sync.Mutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	doneChan chan struct{}
+	stopped  bool
+}
+
+// NewServer creates a new Server instance.
+func NewServer(sockPath string, allowedCommands []*regexp.Regexp) *Server {
+	return &Server{
+		SocketPath:      sockPath,
+		PIDPath:         sockPath + ".pid",
+		AllowedCommands: allowedCommands,
+		doneChan:        make(chan struct{}),
+	}
+}
+
+// IsServerRunning checks if a daemon is actively listening on the given socket path.
+func IsServerRunning(sockPath string) bool {
+	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
+		return false
 	}
 
-	// Start accept loop in a goroutine
-	go func() {
-		defer listener.Close()
-		defer os.Remove(sockPath)
+	conn, err := net.DialTimeout("unix", sockPath, 500*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		return true
+	}
+	return false
+}
 
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				// Check if the context was cancelled (normal shutdown)
-				if ctx.Err() != nil {
-					return
-				}
-				// Check if the listener was closed
+// Start starts listening on the Unix domain socket.
+// It detects and cleans up stale socket/PID files if the server is not active.
+func (s *Server) Start(parentCtx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.SocketPath == "" {
+		return errors.New("socket path is required")
+	}
+
+	// Check if server is already running
+	if IsServerRunning(s.SocketPath) {
+		return fmt.Errorf("server is already running on %s", s.SocketPath)
+	}
+
+	// Clean up stale socket and PID file if present
+	_ = os.Remove(s.SocketPath)
+	if s.PIDPath != "" {
+		_ = os.Remove(s.PIDPath)
+	}
+
+	// Ensure parent directory exists
+	if dir := filepath.Dir(s.SocketPath); dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create socket directory %s: %w", dir, err)
+		}
+	}
+
+	listener, err := net.Listen("unix", s.SocketPath)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", s.SocketPath, err)
+	}
+	s.listener = listener
+
+	// Write PID file
+	if s.PIDPath != "" {
+		pidStr := fmt.Sprintf("%d\n", os.Getpid())
+		_ = os.WriteFile(s.PIDPath, []byte(pidStr), 0644)
+	}
+
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	s.ctx, s.cancel = context.WithCancel(parentCtx)
+
+	// Start accept loop
+	go s.acceptLoop()
+
+	// Monitor context cancellation
+	go func() {
+		<-s.ctx.Done()
+		s.Stop()
+	}()
+
+	return nil
+}
+
+// Stop gracefully shuts down the server and cleans up the socket file and PID file.
+func (s *Server) Stop() error {
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return nil
+	}
+	s.stopped = true
+
+	if s.cancel != nil {
+		s.cancel()
+	}
+
+	var err error
+	if s.listener != nil {
+		err = s.listener.Close()
+	}
+
+	_ = os.Remove(s.SocketPath)
+	if s.PIDPath != "" {
+		_ = os.Remove(s.PIDPath)
+	}
+
+	s.mu.Unlock()
+	return err
+}
+
+// Wait blocks until the server accept loop terminates.
+func (s *Server) Wait() {
+	<-s.doneChan
+}
+
+func (s *Server) acceptLoop() {
+	defer close(s.doneChan)
+	defer func() {
+		_ = os.Remove(s.SocketPath)
+		if s.PIDPath != "" {
+			_ = os.Remove(s.PIDPath)
+		}
+	}()
+
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			select {
+			case <-s.ctx.Done():
+				return
+			default:
 				if errors.Is(err, net.ErrClosed) {
 					return
 				}
 				continue
 			}
-			go handleConnection(ctx, conn, allowedCommands)
 		}
-	}()
+		go handleConnection(s.ctx, conn, s.AllowedCommands)
+	}
+}
 
-	// Close the listener when ctx is cancelled
-	go func() {
-		<-ctx.Done()
-		listener.Close()
-	}()
-
-	return nil
+// StartDaemon starts a Unix Domain Socket server that accepts command execution
+// requests. It runs in a goroutine and stops when ctx is cancelled.
+// Kept for backward compatibility with existing callers.
+func StartDaemon(ctx context.Context, sockPath string, allowedCommands []*regexp.Regexp) error {
+	srv := NewServer(sockPath, allowedCommands)
+	return srv.Start(ctx)
 }
 
 // handleConnection processes a single request on the connection.
@@ -85,12 +203,12 @@ func handleConnection(ctx context.Context, conn net.Conn, allowedCommands []*reg
 	var req ExecRequest
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
 		resp := ExecResponse{Error: fmt.Sprintf("failed to decode request: %v", err)}
-		json.NewEncoder(conn).Encode(resp)
+		_ = json.NewEncoder(conn).Encode(resp)
 		return
 	}
 
 	resp := executeCommand(ctx, &req, allowedCommands)
-	json.NewEncoder(conn).Encode(resp)
+	_ = json.NewEncoder(conn).Encode(resp)
 }
 
 // validateCommand checks whether the command is allowed by the configured patterns.
@@ -122,6 +240,16 @@ func executeCommand(ctx context.Context, req *ExecRequest, allowedCommands []*re
 
 	if err := validateCommand(req, allowedCommands); err != nil {
 		return ExecResponse{Error: err.Error()}
+	}
+
+	if req.Dir != "" {
+		info, err := os.Stat(req.Dir)
+		if err != nil {
+			return ExecResponse{Error: fmt.Sprintf("working directory does not exist on host: %s", req.Dir)}
+		}
+		if !info.IsDir() {
+			return ExecResponse{Error: fmt.Sprintf("working directory path is not a directory on host: %s", req.Dir)}
+		}
 	}
 
 	timeout := req.Timeout

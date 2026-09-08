@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kohkimakimoto/enclave/v3/internal/sandbox"
 	"github.com/kohkimakimoto/enclave/v3/internal/unboxexec"
 	"github.com/urfave/cli/v3"
 )
@@ -36,9 +37,9 @@ func UnboxexecCommand() *cli.Command {
 }
 
 func unboxexecAction(ctx context.Context, cmd *cli.Command) error {
-	sockPath := os.Getenv("ENCLAVE_UNBOXEXEC_SOCK")
+	sockPath := sandbox.DefaultProxySocketPath()
 	if sockPath == "" {
-		return fmt.Errorf("ENCLAVE_UNBOXEXEC_SOCK is not set")
+		return fmt.Errorf("ENCLAVE_UNBOXEXEC_SOCK is not set and default socket path could not be determined")
 	}
 
 	args := cmd.Args().Slice()
