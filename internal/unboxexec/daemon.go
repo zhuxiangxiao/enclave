@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -33,49 +34,103 @@ type ExecResponse struct {
 
 const defaultTimeout = 60 // seconds
 
+// Server owns the lifecycle of a unboxexec Unix socket server.
+// It may be used by a long-lived host proxy or by enclave run.
+type Server struct {
+	listener net.Listener
+	sockPath string
+	done     chan struct{}
+}
+
+// Start starts a server at sockPath. A live socket is never removed: callers
+// receive an error instead. A stale Unix socket is removed before listening.
+func Start(ctx context.Context, sockPath string, allowedCommands []*regexp.Regexp) (*Server, error) {
+	if err := prepareSocket(sockPath); err != nil {
+		return nil, err
+	}
+
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on %s: %w", sockPath, err)
+	}
+	if err := os.Chmod(sockPath, 0o600); err != nil {
+		listener.Close()
+		os.Remove(sockPath)
+		return nil, fmt.Errorf("failed to secure socket %s: %w", sockPath, err)
+	}
+
+	s := &Server{listener: listener, sockPath: sockPath, done: make(chan struct{})}
+	go s.serve(ctx, allowedCommands)
+	go func() {
+		<-ctx.Done()
+		s.Stop()
+	}()
+	return s, nil
+}
+
+func prepareSocket(sockPath string) error {
+	info, err := os.Lstat(sockPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to inspect socket %s: %w", sockPath, err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("refusing to replace non-socket path %s", sockPath)
+	}
+
+	conn, err := net.DialTimeout("unix", sockPath, 200*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		return fmt.Errorf("unboxexec daemon is already running at %s", sockPath)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("cannot determine whether socket %s is live: %w", sockPath, err)
+	}
+	if err := os.Remove(sockPath); err != nil {
+		return fmt.Errorf("failed to remove stale socket %s: %w", sockPath, err)
+	}
+	return nil
+}
+
+func (s *Server) serve(ctx context.Context, allowedCommands []*regexp.Regexp) {
+	defer close(s.done)
+	defer s.listener.Close()
+	defer os.Remove(s.sockPath)
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return
+			}
+			continue
+		}
+		go handleConnection(ctx, conn, allowedCommands)
+	}
+}
+
+// Stop stops accepting new connections and removes the socket after the accept
+// loop exits. It is safe to call more than once.
+func (s *Server) Stop() error {
+	err := s.listener.Close()
+	if errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
+}
+
+// Wait blocks until the server has stopped and its socket has been removed.
+func (s *Server) Wait() { <-s.done }
+
 // StartDaemon starts a Unix Domain Socket server that accepts command execution
 // requests. It runs in a goroutine and stops when ctx is cancelled.
 // The socket file is cleaned up on shutdown.
 // allowedCommands specifies regex patterns that the command string must match.
 // If allowedCommands is empty, all commands are rejected.
 func StartDaemon(ctx context.Context, sockPath string, allowedCommands []*regexp.Regexp) error {
-	// Remove stale socket file if it exists
-	os.Remove(sockPath)
-
-	listener, err := net.Listen("unix", sockPath)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", sockPath, err)
-	}
-
-	// Start accept loop in a goroutine
-	go func() {
-		defer listener.Close()
-		defer os.Remove(sockPath)
-
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				// Check if the context was cancelled (normal shutdown)
-				if ctx.Err() != nil {
-					return
-				}
-				// Check if the listener was closed
-				if errors.Is(err, net.ErrClosed) {
-					return
-				}
-				continue
-			}
-			go handleConnection(ctx, conn, allowedCommands)
-		}
-	}()
-
-	// Close the listener when ctx is cancelled
-	go func() {
-		<-ctx.Done()
-		listener.Close()
-	}()
-
-	return nil
+	_, err := Start(ctx, sockPath, allowedCommands)
+	return err
 }
 
 // handleConnection processes a single request on the connection.
@@ -157,7 +212,10 @@ func executeCommand(ctx context.Context, req *ExecRequest, allowedCommands []*re
 		Stderr: stderr.String(),
 	}
 
-	if err != nil {
+	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
+		resp.ExitCode = -1
+		resp.Error = fmt.Sprintf("command timed out after %d seconds", timeout)
+	} else if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			resp.ExitCode = exitErr.ExitCode()

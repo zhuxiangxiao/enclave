@@ -27,6 +27,7 @@ Table of Contents:
   - [Viewing the Sandbox Profile](#viewing-the-sandbox-profile)
   - [Viewing the Effective Configuration](#viewing-the-effective-configuration)
 - [Sandbox-External Command Execution](#sandbox-external-command-execution)
+  - [Host Command Proxy](#host-command-proxy)
   - [The `unboxexec` Subcommand](#the-unboxexec-subcommand)
     - [Options](#options)
     - [Examples](#examples)
@@ -231,6 +232,32 @@ Some tools (e.g. Playwright) cannot run inside the macOS sandbox because they us
 
 `enclave` includes a built-in mechanism called **unboxexec** that allows commands to be executed outside the sandbox. When `enclave run` starts, it launches an internal daemon that accepts command execution requests from inside the sandbox.
 
+### Host Command Proxy
+
+Use `enclave proxy` to run the same daemon independently of `enclave run`. This
+is useful when another sandbox (for example, an OpenCode sandbox) can run the
+`enclave` binary and has permission to connect to the socket.
+
+```bash
+# Host: reads the normal layered configuration and remains in the foreground.
+enclave proxy
+
+# The command prints the socket path. A custom stable path is also supported.
+enclave proxy --socket "$HOME/.config/enclave/proxy.sock"
+
+# In the external sandbox: pass the host socket path through its environment.
+export ENCLAVE_UNBOXEXEC_SOCK="$HOME/.config/enclave/proxy.sock"
+enclave unboxexec -- git status
+```
+
+The default socket is `$XDG_CONFIG_HOME/enclave/proxy.sock` (or
+`~/.config/enclave/proxy.sock`). `proxy` handles `SIGINT` and `SIGTERM`, removes
+the socket on shutdown, rejects a second live proxy at the same path, and
+removes a stale socket before starting. The socket mode is `0600`, so only the
+same host user can connect. The enclosing sandbox must also explicitly permit
+Unix-socket access to that path; enclave cannot add permissions to a sandbox it
+did not launch.
+
 ### The `unboxexec` Subcommand
 
 The `enclave unboxexec` subcommand is used from inside the sandbox to execute commands outside of it.
@@ -267,6 +294,14 @@ enclave unboxexec --env API_KEY=secret --env DEBUG=1 -- my-command
 
 By default, all commands executed via `unboxexec` are **rejected** unless explicitly allowed by `unboxexec_allowed_commands` in the configuration file. See the [Configuration Keys](#configuration-keys) section for details.
 
+Patterns match the command and arguments joined with spaces. Treat every allowed
+program as trusted: allowing `sh -c`, build tools such as `gradle`, or project
+wrappers such as `./gradlew` can in turn execute arbitrary host code. The proxy
+does not invoke a shell itself; it uses the requested executable and argument
+array directly. The requested `--dir` is a host path, and `--env` extends the
+host daemon environment. Only expose the socket to sandboxes and processes you
+trust.
+
 ### Architecture
 
 The following diagram shows how sandbox-external command execution is implemented internally.
@@ -292,7 +327,7 @@ graph TD
     F -- "JSON request/response over Unix socket" --> B
 ```
 
-The `enclave run` process starts the unboxexec daemon as a goroutine, then spawns `sandbox-exec` as a child process. The command running inside the sandbox communicates with the daemon via a Unix Domain Socket to execute commands outside the sandbox.
+The `enclave run` process starts the unboxexec daemon as a goroutine, then spawns `sandbox-exec` as a child process. The command running inside the sandbox communicates with the daemon via a Unix Domain Socket to execute commands outside the sandbox. `enclave proxy` uses the same server and JSON protocol but does not start `sandbox-exec`, so multiple independent clients can share it.
 
 ## Environment Variables
 

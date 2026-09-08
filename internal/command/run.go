@@ -29,6 +29,7 @@ func newApp() *cli.Command {
 			SkillCommand(),
 			ProfileCommand(),
 			VersionCommand(),
+			ProxyCommand(),
 			UnboxexecCommand(),
 		},
 	}
