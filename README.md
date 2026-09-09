@@ -4,13 +4,13 @@
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/kohkimakimoto/enclave)](https://github.com/kohkimakimoto/enclave/releases)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/kohkimakimoto/enclave/blob/main/LICENSE)
 
-A tool to run any command in a sandboxed environment using macOS's `sandbox-exec`.
+A tool to run any command in a sandboxed environment using macOS's `sandbox-exec` and execute host commands safely via a Host Command Proxy.
 
 > [!NOTE]
 > This project was previously called **claude-sandbox** and was designed specifically to run Claude Code in a sandboxed environment. Starting from v3, it has been redesigned and renamed to **enclave** to support running any command — not just Claude Code, but any AI agent or arbitrary command — inside a sandbox.
 
 > [!IMPORTANT]
-> This tool relies on macOS's `sandbox-exec` (Apple Seatbelt) and **only works on macOS**.
+> Sandboxed execution relies on macOS's `sandbox-exec` (Apple Seatbelt) and **only works on macOS**. However, the `unboxexec` host proxy protocol can connect external sandboxes (like OpenCode sandbox, Docker, or other environments) to execute authorized host commands.
 
 Table of Contents:
 - [Why Not the Built-in Sandbox?](#why-not-the-built-in-sandbox)
@@ -18,6 +18,8 @@ Table of Contents:
   - [Homebrew](#homebrew)
   - [Build from source](#build-from-source)
 - [Usage](#usage)
+  - [Running Sandboxed Commands (`enclave run`)](#running-sandboxed-commands-enclave-run)
+  - [Standalone Host Proxy Daemon (`enclave proxy`)](#standalone-host-proxy-daemon-enclave-proxy)
   - [Useful Shell Aliases](#useful-shell-aliases)
 - [Configuration File](#configuration-file)
   - [Creating a Configuration File](#creating-a-configuration-file)
@@ -31,6 +33,7 @@ Table of Contents:
     - [Options](#options)
     - [Examples](#examples)
   - [Command Restrictions](#command-restrictions)
+  - [Standalone Proxy Mode & External Sandboxes](#standalone-proxy-mode--external-sandboxes)
   - [Architecture](#architecture)
 - [Environment Variables](#environment-variables)
 - [Agent Skill](#agent-skill)
@@ -65,6 +68,8 @@ make build
 
 ## Usage
 
+### Running Sandboxed Commands (`enclave run`)
+
 Use `enclave run` to run any command inside the sandbox:
 
 ```bash
@@ -89,6 +94,36 @@ Use `--config` (or `-c`) to specify a custom configuration file:
 enclave run -c copilot-sandbox.toml copilot
 enclave run -c my.toml -- claude -p "hello"
 ```
+
+### Standalone Host Proxy Daemon (`enclave proxy`)
+
+`enclave proxy` starts a standalone Host Command Proxy daemon without starting a macOS sandbox. This allows apps running inside independent sandboxes (such as OpenCode sandbox, Docker, or other macOS sandboxes) to invoke `enclave unboxexec` to execute host shell commands.
+
+```bash
+# Start proxy in foreground mode (default)
+enclave proxy
+
+# Start proxy in background mode
+enclave proxy -d
+
+# Check proxy daemon status
+enclave proxy --status
+
+# Stop running proxy daemon
+enclave proxy --stop
+
+# Specify custom config or socket path
+enclave proxy -c /path/to/enclave.toml -s /path/to/socket.sock
+```
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--config` | `-c` | Path to a config file (overrides automatic config resolution) |
+| `--socket` | `-s` | Custom path to Unix Domain Socket for proxy daemon |
+| `--foreground` | | Run proxy daemon in foreground mode (default behavior) |
+| `--background` | `-d` | Run proxy daemon in background mode |
+| `--status` | | Check proxy daemon status |
+| `--stop` | | Stop running proxy daemon |
 
 ### Useful Shell Aliases
 
@@ -167,6 +202,8 @@ sandbox_profile = '''
 # If empty or not configured, all commands are rejected.
 unboxexec_allowed_commands = [
     "^playwright-cli",
+    "^git ",
+    "^./gradlew ",
 ]
 ```
 
@@ -227,13 +264,13 @@ unboxexec_allowed_commands = [
 
 ## Sandbox-External Command Execution
 
-Some tools (e.g. Playwright) cannot run inside the macOS sandbox because they use their own sandboxing mechanisms, which conflict with the nested sandbox environment.
+Some tools (e.g. Playwright or heavy build systems like Gradle) cannot run inside the macOS sandbox or need to execute commands on the host system.
 
-`enclave` includes a built-in mechanism called **unboxexec** that allows commands to be executed outside the sandbox. When `enclave run` starts, it launches an internal daemon that accepts command execution requests from inside the sandbox.
+`enclave` includes a built-in mechanism called **unboxexec** that allows commands to be executed outside the sandbox.
 
 ### The `unboxexec` Subcommand
 
-The `enclave unboxexec` subcommand is used from inside the sandbox to execute commands outside of it.
+The `enclave unboxexec` subcommand is used from inside a sandbox to execute commands outside of it via the unboxexec daemon.
 
 ```bash
 enclave unboxexec [options] -- <command> [args...]
@@ -267,42 +304,55 @@ enclave unboxexec --env API_KEY=secret --env DEBUG=1 -- my-command
 
 By default, all commands executed via `unboxexec` are **rejected** unless explicitly allowed by `unboxexec_allowed_commands` in the configuration file. See the [Configuration Keys](#configuration-keys) section for details.
 
-### Architecture
+### Standalone Proxy Mode & External Sandboxes
 
-The following diagram shows how sandbox-external command execution is implemented internally.
+You can run `enclave proxy` on the host to decouple the daemon from `enclave run`. Applications inside external sandboxes (e.g. OpenCode sandbox) can export `ENCLAVE_UNBOXEXEC_SOCK` pointing to the proxy socket and execute commands via `enclave unboxexec`:
 
-```mermaid
-graph TD
-    A["enclave run"]
+```bash
+# On Host:
+enclave proxy -d
 
-    subgraph daemon["unboxexec daemon"]
-        B["Listen on Unix socket"]
-        C["Execute commands outside sandbox"]
-        B --> C
-    end
-
-    subgraph sandboxed["sandbox-exec"]
-        E["command (e.g. claude)"]
-        F["invoke enclave unboxexec"]
-        E --> F
-    end
-
-    A -- "starts as goroutine" --> daemon
-    A -- "spawns as child process" --> sandboxed
-    F -- "JSON request/response over Unix socket" --> B
+# Inside External Sandbox:
+export ENCLAVE_UNBOXEXEC_SOCK="$HOME/.config/enclave/proxy.sock"
+enclave unboxexec -- git status
+enclave unboxexec -- ./gradlew :madrid-core:compileJava
 ```
 
-The `enclave run` process starts the unboxexec daemon as a goroutine, then spawns `sandbox-exec` as a child process. The command running inside the sandbox communicates with the daemon via a Unix Domain Socket to execute commands outside the sandbox.
+### Architecture
+
+The following diagram shows how sandbox-external command execution is structured.
+
+```text
+Host
+┌─────────────────────────────────────────────┐
+│                                             │
+│   enclave proxy / daemon                    │
+│        │                                    │
+│        │ Unix Domain Socket                 │
+│        ▼                                    │
+│   Host command execution                    │
+│                                             │
+└────────────────▲────────────────────────────┘
+                 │
+                 │ Unix Socket
+                 │
+      ┌──────────┴──────────┐
+      │                     │
+ OpenCode Sandbox       macOS Sandbox
+      │                     │
+      └── enclave ──────────┘
+             unboxexec
+```
 
 ## Environment Variables
 
-The following environment variables are set by enclave and available to the process running inside the sandbox.
+The following environment variables are used by enclave:
 
 | Variable | Description |
 |---|---|
 | `ENCLAVE_SANDBOX` | Set to `1` inside the sandbox |
-| `ENCLAVE_UNBOXEXEC_SOCK` | Path to the unboxexec daemon socket |
-| `ENCLAVE_CONFIG` | Path to the effective config dump file (written at startup, read by `enclave config`) |
+| `ENCLAVE_UNBOXEXEC_SOCK` | Unix socket path for communicating with the unboxexec proxy daemon (read by `enclave unboxexec` and set by `enclave run`) |
+| `ENCLAVE_CONFIG` | Path to the effective config dump file |
 
 ## Agent Skill
 
