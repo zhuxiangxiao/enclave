@@ -232,39 +232,11 @@ func validateCommand(req *ExecRequest, allowedCommands []*regexp.Regexp) error {
 	return fmt.Errorf("command not allowed: %q does not match any allowed pattern", cmdStr)
 }
 
-// fixPythonCodeEscapes unescapes literal \n, \t, and \r in Python inline code arguments (-c).
-// When inline Python scripts are passed with literal \n (e.g. from escaped LLM/shell parameters),
-// Python's syntax parser interprets leading \ as line continuation and fails with SyntaxError.
-// Converting literal \n into real newlines ensures valid execution of multiline scripts.
-func fixPythonCodeEscapes(cmd string, args []string) []string {
-	if cmd != "python" && cmd != "python3" && !strings.HasSuffix(cmd, "/python") && !strings.HasSuffix(cmd, "/python3") {
-		return args
-	}
-
-	newArgs := make([]string, len(args))
-	copy(newArgs, args)
-
-	for i := 0; i < len(newArgs); i++ {
-		if newArgs[i] == "-c" && i+1 < len(newArgs) {
-			code := newArgs[i+1]
-			if strings.Contains(code, `\n`) {
-				code = strings.ReplaceAll(code, `\n`, "\n")
-				code = strings.ReplaceAll(code, `\t`, "\t")
-				code = strings.ReplaceAll(code, `\r`, "\r")
-				newArgs[i+1] = code
-			}
-		}
-	}
-	return newArgs
-}
-
 // executeCommand runs the requested command and returns the response.
 func executeCommand(ctx context.Context, req *ExecRequest, allowedCommands []*regexp.Regexp) ExecResponse {
 	if req.Command == "" {
 		return ExecResponse{Error: "command is required"}
 	}
-
-	req.Args = fixPythonCodeEscapes(req.Command, req.Args)
 
 	if err := validateCommand(req, allowedCommands); err != nil {
 		return ExecResponse{Error: err.Error()}
