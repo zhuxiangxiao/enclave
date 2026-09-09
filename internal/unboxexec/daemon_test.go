@@ -237,3 +237,38 @@ func TestConcurrentRequests(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestUnescapeStringAndMultilineExecution(t *testing.T) {
+	tmpDir := t.TempDir()
+	sockPath := filepath.Join(tmpDir, "unescape.sock")
+
+	srv := NewServer(sockPath, allowAll())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer func() {
+		_ = srv.Stop()
+		srv.Wait()
+	}()
+
+	// Test unboxing python multiline script containing literal \n
+	resp, err := SendRequest(sockPath, &ExecRequest{
+		Command: "python3",
+		Args:    []string{"-c", `\nimport sys\nprint('hello from multiline python')\n`},
+	})
+	if err != nil {
+		t.Fatalf("SendRequest failed: %v", err)
+	}
+
+	if resp.ExitCode != 0 || resp.Error != "" {
+		t.Fatalf("command failed with exit code %d, error %q, stderr %q", resp.ExitCode, resp.Error, resp.Stderr)
+	}
+
+	expected := "hello from multiline python\n"
+	if resp.Stdout != expected {
+		t.Errorf("expected stdout %q, got %q", expected, resp.Stdout)
+	}
+}
