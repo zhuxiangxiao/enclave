@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/version"
+	"github.com/zhuxiangxiao/enclave/v3/internal/version"
 )
 
 func TestVersionCommand(t *testing.T) {

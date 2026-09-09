@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/sandbox"
+	"github.com/zhuxiangxiao/enclave/v3/internal/sandbox"
 	"github.com/urfave/cli/v3"
 )
 
@@ -14,7 +14,7 @@ func localConfigTemplate() string {
 	return `# Local override configuration for enclave.
 # This file is intended for personal, machine-specific settings that should
 # not be committed to version control. Add it to .gitignore.
-# See https://github.com/kohkimakimoto/enclave
+# See https://github.com/zhuxiangxiao/enclave
 
 # Sandbox profile for sandbox-exec.
 # If not set, the built-in default profile is used.

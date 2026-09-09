@@ -4,7 +4,7 @@ SHELL := bash
 PATH := $(CURDIR)/.dev/go-tools/bin:$(PATH)
 COMMIT_HASH := $(shell git rev-parse --short HEAD)
 
-BUILD_LDFLAGS = "-s -w -X github.com/kohkimakimoto/enclave/v3/internal/version.CommitHash=$(COMMIT_HASH)"
+BUILD_LDFLAGS = "-s -w -X github.com/zhuxiangxiao/enclave/v3/internal/version.CommitHash=$(COMMIT_HASH)"
 
 # Load .env file if it exists.
 ifneq (,$(wildcard ./.env))

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/config"
+	"github.com/zhuxiangxiao/enclave/v3/internal/config"
 )
 
 // SocketPath returns the path for the daemon's Unix Domain Socket.

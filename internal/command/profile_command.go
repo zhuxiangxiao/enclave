@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/config"
-	"github.com/kohkimakimoto/enclave/v3/internal/sandbox"
+	"github.com/zhuxiangxiao/enclave/v3/internal/config"
+	"github.com/zhuxiangxiao/enclave/v3/internal/sandbox"
 	"github.com/urfave/cli/v3"
 )
 

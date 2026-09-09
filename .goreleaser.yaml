@@ -20,8 +20,8 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/kohkimakimoto/enclave/v3/internal/version.Version={{.Version}}
-      - -X github.com/kohkimakimoto/enclave/v3/internal/version.CommitHash={{.ShortCommit}}
+      - -X github.com/zhuxiangxiao/enclave/v3/internal/version.Version={{.Version}}
+      - -X github.com/zhuxiangxiao/enclave/v3/internal/version.CommitHash={{.ShortCommit}}
 
 archives:
   - formats:
@@ -37,9 +37,21 @@ checksum:
 changelog:
   disable: true
 
+brews:
+  - name: enclave
+    repository:
+      owner: zhuxiangxiao
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/zhuxiangxiao/enclave"
+    description: "A tool to run any command in a sandboxed environment using macOS's sandbox-exec"
+    license: "MIT"
+    install: |
+      bin.install "enclave"
+
 release:
   github:
-    owner: kohkimakimoto
+    owner: zhuxiangxiao
     name: enclave
   draft: false
   # Automatically marks as prerelease if the tag contains a hyphen (e.g. v3.0.0-rc1).

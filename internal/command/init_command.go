@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/sandbox"
+	"github.com/zhuxiangxiao/enclave/v3/internal/sandbox"
 	"github.com/urfave/cli/v3"
 )
 
 // projectConfigTemplate generates the template for project-specific enclave.toml.
 func projectConfigTemplate() string {
 	return `# Project-specific configuration for enclave.
-# See https://github.com/kohkimakimoto/enclave
+# See https://github.com/zhuxiangxiao/enclave
 
 # Sandbox profile for sandbox-exec.
 # If not set, the built-in default profile is used.

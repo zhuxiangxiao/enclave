@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/command"
+	"github.com/zhuxiangxiao/enclave/v3/internal/command"
 )
 
 func main() {

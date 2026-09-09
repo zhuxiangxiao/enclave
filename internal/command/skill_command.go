@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/skill"
+	"github.com/zhuxiangxiao/enclave/v3/internal/skill"
 	"github.com/urfave/cli/v3"
 )
 

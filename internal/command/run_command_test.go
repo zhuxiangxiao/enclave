@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/config"
+	"github.com/zhuxiangxiao/enclave/v3/internal/config"
 )
 
 func TestRunCommand_NoArgs(t *testing.T) {

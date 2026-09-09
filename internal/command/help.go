@@ -16,7 +16,7 @@ Configuration:
    2. ./enclave.toml (project-level)
    3. ./enclave.local.toml (local overrides, gitignore-friendly)
 
-   See: https://github.com/kohkimakimoto/enclave#configuration-file
+   See: https://github.com/zhuxiangxiao/enclave#configuration-file
 
 Example Usage:
    # Run a command in a sandboxed environment

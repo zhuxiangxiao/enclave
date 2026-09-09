@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/config"
+	"github.com/zhuxiangxiao/enclave/v3/internal/config"
 	"github.com/urfave/cli/v3"
 )
 

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/skill"
+	"github.com/zhuxiangxiao/enclave/v3/internal/skill"
 )
 
 func TestSkillCommand(t *testing.T) {
