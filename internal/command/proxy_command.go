@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/config"
-	"github.com/kohkimakimoto/enclave/v3/internal/sandbox"
-	"github.com/kohkimakimoto/enclave/v3/internal/unboxexec"
+	"github.com/zhuxiangxiao/enclave/v3/internal/config"
+	"github.com/zhuxiangxiao/enclave/v3/internal/sandbox"
+	"github.com/zhuxiangxiao/enclave/v3/internal/unboxexec"
 	"github.com/urfave/cli/v3"
 )
 

@@ -6,15 +6,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/config"
-	"github.com/kohkimakimoto/enclave/v3/internal/sandbox"
+	"github.com/zhuxiangxiao/enclave/v3/internal/config"
+	"github.com/zhuxiangxiao/enclave/v3/internal/sandbox"
 	"github.com/urfave/cli/v3"
 )
 
 // userConfigTemplate generates the template for user-level config.toml.
 func userConfigTemplate() string {
 	return `# User-level configuration for enclave.
-# See https://github.com/kohkimakimoto/enclave
+# See https://github.com/zhuxiangxiao/enclave
 
 # Sandbox profile for sandbox-exec.
 # If not set, the built-in default profile is used.

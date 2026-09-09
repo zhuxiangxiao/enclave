@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kohkimakimoto/enclave/v3/internal/version"
+	"github.com/zhuxiangxiao/enclave/v3/internal/version"
 	"github.com/urfave/cli/v3"
 )
 

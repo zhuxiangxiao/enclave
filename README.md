@@ -1,8 +1,8 @@
 # enclave
 
-[![test](https://github.com/kohkimakimoto/enclave/actions/workflows/test.yml/badge.svg)](https://github.com/kohkimakimoto/enclave/actions/workflows/test.yml)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/kohkimakimoto/enclave)](https://github.com/kohkimakimoto/enclave/releases)
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/kohkimakimoto/enclave/blob/main/LICENSE)
+[![test](https://github.com/zhuxiangxiao/enclave/actions/workflows/test.yml/badge.svg)](https://github.com/zhuxiangxiao/enclave/actions/workflows/test.yml)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/zhuxiangxiao/enclave)](https://github.com/zhuxiangxiao/enclave/releases)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/zhuxiangxiao/enclave/blob/main/LICENSE)
 
 A tool to run any command in a sandboxed environment using macOS's `sandbox-exec` and execute host commands safely via a Host Command Proxy.
 
@@ -54,13 +54,13 @@ What I actually needed was simpler: **restrict file writes to the current direct
 ### Homebrew
 
 ```bash
-brew install kohkimakimoto/tap/enclave
+brew install zhuxiangxiao/tap/enclave
 ```
 
 ### Build from source
 
 ```bash
-git clone https://github.com/kohkimakimoto/enclave.git
+git clone https://github.com/zhuxiangxiao/enclave.git
 cd enclave
 make build
 # Binary is at .dev/build/dev/enclave

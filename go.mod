@@ -1,4 +1,4 @@
-module github.com/kohkimakimoto/enclave/v3
+module github.com/zhuxiangxiao/enclave/v3
 
 go 1.24.5
 
