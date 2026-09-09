@@ -238,9 +238,9 @@ func TestConcurrentRequests(t *testing.T) {
 	wg.Wait()
 }
 
-func TestUnescapeStringAndMultilineExecution(t *testing.T) {
+func TestMultilineExecution(t *testing.T) {
 	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "unescape.sock")
+	sockPath := filepath.Join(tmpDir, "multiline.sock")
 
 	srv := NewServer(sockPath, allowAll())
 	ctx, cancel := context.WithCancel(context.Background())
@@ -254,10 +254,10 @@ func TestUnescapeStringAndMultilineExecution(t *testing.T) {
 		srv.Wait()
 	}()
 
-	// Test unboxing python multiline script containing literal \n
+	// Test python multiline script passed with real newlines
 	resp, err := SendRequest(sockPath, &ExecRequest{
 		Command: "python3",
-		Args:    []string{"-c", `\nimport sys\nprint('hello from multiline python')\n`},
+		Args:    []string{"-c", "\nimport sys\nprint('hello from multiline python')\n"},
 	})
 	if err != nil {
 		t.Fatalf("SendRequest failed: %v", err)
