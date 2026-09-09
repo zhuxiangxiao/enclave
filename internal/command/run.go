@@ -21,6 +21,7 @@ func newApp() *cli.Command {
 		ExtraInfo:   func() map[string]string { return map[string]string{"CommitHash": version.CommitHash} },
 		Commands: []*cli.Command{
 			RunCommand(),
+			ProxyCommand(),
 			InitCommand(),
 			InitLocalCommand(),
 			InitUserCommand(),
