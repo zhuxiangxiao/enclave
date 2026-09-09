@@ -1,94 +1,79 @@
-# claude-sandbox
+# enclave
 
 ## Overview
 
-A wrapper tool to safely run Claude Code in a sandboxed environment on macOS.
+A wrapper tool to safely run any command or AI agent in a sandboxed environment on macOS, or run a standalone Host Command Proxy daemon for external sandboxes.
 Implemented in Go.
-Runs a background daemon (goroutine) to support sandbox-bypass execution.
 
 ## Features
 
 ### Sandboxed Execution
 
-- Execute Claude Code using macOS `sandbox-exec`
-- Sandbox profile is configured via `[sandbox].profile` in `sandbox.toml`; if not set, built-in default is used
-- Transparent argument passing to Claude Code
+- Execute commands using macOS `sandbox-exec`
+- Sandbox profile is configured via `sandbox_profile` in TOML config; if not set, built-in default is used
+- Transparent argument passing via `enclave run -- <command> [args...]`
 
-### Sandbox-External Command Execution (unboxexec)
+### Standalone Host Command Proxy & Unboxexec Execution
 
-- Built-in daemon to execute commands outside the sandbox
-- Communication via Unix Domain Socket (`{TMPDIR}/claude-sandbox-unboxexec-{PID}.sock`)
-- Socket path is passed to Claude Code via `CLAUDE_SANDBOX_UNBOXEXEC_SOCK` environment variable
+- Run standalone daemon via `enclave proxy` (`--foreground`, `--background`, `--status`, `--stop`)
+- Communication via Unix Domain Socket (defaults to `~/.config/enclave/proxy.sock` or via `ENCLAVE_UNBOXEXEC_SOCK`)
+- Execute commands outside sandbox via `enclave unboxexec -- <command>`
 
 ### Configuration File
 
-- Three-tier TOML configuration with layered merging
-- Config resolution order (each level overrides the previous for any field that is explicitly set):
-  1. User: `~/.claude/sandbox.toml`
-  2. Project: `.claude/sandbox.toml` in working directory
-  3. Local: `.claude/sandbox.local.toml` in working directory (gitignore-friendly overrides)
-- If no config files exist, built-in defaults are used
+- Three-tier TOML configuration with layered merging:
+  1. User: `~/.config/enclave/config.toml`
+  2. Project: `./enclave.toml` in working directory
+  3. Local: `./enclave.local.toml` in working directory (gitignore-friendly overrides)
+- Optional `--config` file override.
 
 ```toml
-# ~/.claude/sandbox.toml         (user-level)
-# .claude/sandbox.toml           (project-level)
-# .claude/sandbox.local.toml     (local overrides)
+sandbox_profile = '''
+(version 1)
+(allow default)
+(deny file-write*)
+'''
 
-[sandbox]
-# Sandbox profile for sandbox-exec (multiline literal string).
-# If not set, the built-in default profile is used.
-# profile = '''
-# (version 1)
-# (allow default)
-# ...
-# '''
-
-# Override working directory (optional).
-# workdir = "/path/to/workdir"
-
-# Override claude binary path (optional).
-# claude_bin = "/path/to/claude"
-
-[unboxexec]
-# Regex patterns for allowed commands.
-# The command + args joined by spaces is matched against each pattern.
-# If any pattern matches, the command is allowed.
-# If empty or not configured, all commands are rejected.
-allowed_commands = [
+unboxexec_allowed_commands = [
     "^playwright-cli",
+    "^git ",
+    "^./gradlew ",
 ]
 ```
 
 ## Architecture
 
+```text
+Host
+┌─────────────────────────────────────────────┐
+│                                             │
+│   enclave proxy / daemon                    │
+│        │                                    │
+│        │ Unix Domain Socket                 │
+│        ▼                                    │
+│   Host command execution                    │
+│                                             │
+└────────────────▲────────────────────────────┘
+                 │
+                 │ Unix Socket
+                 │
+      ┌──────────┴──────────┐
+      │                     │
+ OpenCode Sandbox       macOS Sandbox
+      │                     │
+      └── enclave ──────────┘
+             unboxexec
 ```
-claude-sandbox (single process)
-│
-├─ unboxexec daemon (goroutine)
-│  ├─ Listen on Unix socket: {TMPDIR}/claude-sandbox-unboxexec-{PID}.sock
-│  ├─ Accept JSON command execution requests
-│  └─ Execute commands outside sandbox, return JSON responses
-│
-└─ sandbox-exec → claude (child process)
-   ├─ Runs inside macOS sandbox
-   ├─ Receives CLAUDE_SANDBOX_UNBOXEXEC_SOCK env var
-   └─ Can request sandbox-external execution via Unix socket
-```
-
-The `claude-sandbox` process starts the unboxexec daemon as a goroutine, then
-spawns `sandbox-exec` as a child process. When claude exits, the context is
-cancelled and the daemon goroutine shuts down.
 
 ### Unboxexec Communication Protocol
 
-The unboxexec daemon communicates with its clients via JSON over the Unix Domain Socket.
-This protocol is only used for sandbox-bypass command execution (unboxexec); the main sandboxed execution of Claude Code does not involve this protocol.
+JSON over Unix Domain Socket:
 
 **Request**:
 ```json
 {
-  "command": "playwright",
-  "args": ["install", "chromium"],
+  "command": "git",
+  "args": ["status"],
   "env": {"KEY": "value"},
   "dir": "/path/to/workdir",
   "timeout": 300
@@ -109,29 +94,23 @@ This protocol is only used for sandbox-bypass command execution (unboxexec); the
 
 | Package | Description |
 |---|---|
-| `cmd/claude-sandbox` | Entry point (`main.go`) |
-| `internal/command` | CLI application setup, subcommand definitions (claude, init, init-user, profile, unboxexec, etc.) |
+| `cmd/enclave` | Entry point (`main.go`) |
+| `internal/command` | CLI application setup, subcommand definitions (`run`, `proxy`, `init`, `config`, `profile`, `unboxexec`, etc.) |
 | `internal/config` | TOML configuration loading and allowed-command compilation |
 | `internal/sandbox` | Sandbox profile building, environment variable helpers |
-| `internal/unboxexec` | Unboxexec daemon (server) and client |
-| `internal/version` | Version and commit hash (set via `-ldflags` at build time) |
-
-`cmd/claude-sandbox` depends on `internal/command`, which depends on all other `internal/*` packages. The `internal/*` packages have no circular dependencies among themselves.
+| `internal/unboxexec` | Unboxexec daemon (`Server`) and client (`SendRequest`) |
+| `internal/version` | Version and commit hash |
 
 ## Environment Variables
 
 | Variable | Description |
 |---|---|
-| `CLAUDE_SANDBOX` | Set to `1` to indicate the process is running inside the sandbox (set by claude-sandbox for child process) |
-| `CLAUDE_SANDBOX_UNBOXEXEC_SOCK` | Unix socket path for communicating with the unboxexec daemon (set by claude-sandbox for child process) |
-| `CLAUDE_SANDBOX_WORKDIR` | Working directory used for sandbox execution (set by claude-sandbox for child process) |
-| `CLAUDE_SANDBOX_CLAUDE_BIN` | Path to claude binary (set by claude-sandbox for child process) |
+| `ENCLAVE_SANDBOX` | Set to `1` inside the sandbox |
+| `ENCLAVE_UNBOXEXEC_SOCK` | Unix socket path for communicating with the unboxexec proxy daemon |
+| `ENCLAVE_CONFIG` | Path to the effective config dump file |
 
 ## Development
 
-- macOS only (`sandbox-exec` is macOS-specific)
-- Go version and external dependencies are defined in `go.mod`
-- `make build` — Build dev binary to `.dev/build/dev/claude-sandbox`
-- `make test` — Run tests
-- `make format` — Format source code
-- Version and commit hash are injected via `-ldflags` at build time
+- Sandboxed execution (`enclave run`) is macOS-specific (`sandbox-exec`). `enclave proxy` and `enclave unboxexec` use standard Unix domain sockets.
+- `make build` — Build dev binary to `.dev/build/dev/enclave`
+- `make test` — Run tests (`go test ./...`)
